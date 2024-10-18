@@ -1,0 +1,259 @@
+
+
+
+Here’s how to organize the files:
+
+### Folder Structure:
+```
+russian-language-platform/
+    server/
+        models/
+            User.js
+            Lesson.js
+        routes/
+            userRoutes.js
+            lessonRoutes.js
+        index.js
+    client/
+        src/
+            components/
+                Register.js
+                Dashboard.js
+            App.js
+```
+
+### server/models/User.js:
+```javascript
+const mongoose = require('mongoose');
+
+const UserSchema = new mongoose.Schema({
+    name: { type: String, required: true },
+    email: { type: String, required: true },
+    level: { type: String, default: 'Beginner' }, // Beginner/Intermediate/Advanced
+    learningGoal: { type: String, required: true },
+    timeCommitment: { type: String, required: true },
+    preferredStyle: { type: String, required: true },
+    progress: { type: Array, default: [] }  // Store completed modules
+}, { timestamps: true });
+
+module.exports = mongoose.model('User', UserSchema);
+```
+
+### server/models/Lesson.js:
+```javascript
+const mongoose = require('mongoose');
+
+const LessonSchema = new mongoose.Schema({
+    title: { type: String, required: true },
+    content: { type: String, required: true }, // Could be text or link to audio file
+    type: { type: String, required: true }, // Reading/Listening/Interactive
+    level: { type: String, required: true }, // Beginner/Intermediate/Advanced
+    chapter: { type: Number, required: true } // To categorize lessons into chapters
+});
+
+module.exports = mongoose.model('Lesson', LessonSchema);
+```
+
+### server/routes/userRoutes.js:
+```javascript
+const express = require('express');
+const router = express.Router();
+const User = require('../models/User');
+
+// Register new user or login existing user
+router.post('/register', async (req, res) => {
+    const { name, email, level, learningGoal, timeCommitment, preferredStyle } = req.body;
+
+    try {
+        const user = new User({ name, email, level, learningGoal, timeCommitment, preferredStyle });
+        await user.save();
+        res.status(201).json(user);
+    } catch (error) {
+        res.status(500).json({ error: "Error registering user" });
+    }
+});
+
+module.exports = router;
+```
+
+### server/routes/lessonRoutes.js:
+```javascript
+const express = require('express');
+const router = express.Router();
+const Lesson = require('../models/Lesson');
+
+// Fetch lessons based on user level and preferred style
+router.get('/fetch-lessons', async (req, res) => {
+    const { level, preferredStyle } = req.query;
+
+    try {
+        const lessons = await Lesson.find({ level, type: preferredStyle });
+        res.status(200).json(lessons);
+    } catch (error) {
+        res.status(500).json({ error: "Error fetching lessons" });
+    }
+});
+
+module.exports = router;
+```
+
+### server/index.js:
+```javascript
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+require('dotenv').config();
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+const PORT = process.env.PORT || 5000;
+
+// MongoDB Connection
+mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+    .then(() => console.log("MongoDB connected"))
+    .catch(err => console.log(err));
+
+// Routes for user registration, progress tracking
+const userRoutes = require('./routes/userRoutes');
+const lessonRoutes = require('./routes/lessonRoutes');
+app.use('/api/users', userRoutes);
+app.use('/api/lessons', lessonRoutes);
+
+// Start Server
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+});
+```
+
+### client/src/components/Register.js:
+```javascript
+import React, { useState } from 'react';
+import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
+
+function Register() {
+    const [userData, setUserData] = useState({
+        name: '',
+        email: '',
+        level: 'Beginner',
+        learningGoal: '',
+        timeCommitment: '',
+        preferredStyle: ''
+    });
+    const navigate = useNavigate();
+
+    const handleChange = (e) => {
+        setUserData({ ...userData, [e.target.name]: e.target.value });
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        try {
+            await axios.post('http://localhost:5000/api/users/register', userData);
+            navigate('/dashboard');
+        } catch (error) {
+            console.error('Error registering user');
+        }
+    };
+
+    return (
+        <div>
+            <h1>Register</h1>
+            <form onSubmit={handleSubmit}>
+                <input type="text" name="name" placeholder="Name" onChange={handleChange} required />
+                <input type="email" name="email" placeholder="Email" onChange={handleChange} required />
+                <select name="level" onChange={handleChange}>
+                    <option value="Beginner">Beginner</option>
+                    <option value="Intermediate">Intermediate</option>
+                    <option value="Advanced">Advanced</option>
+                </select>
+                <input type="text" name="learningGoal" placeholder="Learning Goal" onChange={handleChange} required />
+                <select name="timeCommitment" onChange={handleChange}>
+                    <option value="10 mins">10 mins</option>
+                    <option value="30 mins">30 mins</option>
+                    <option value="1 hour">1 hour</option>
+                </select>
+                <select name="preferredStyle" onChange={handleChange}>
+                    <option value="Reading">Reading</option>
+                    <option value="Listening">Listening</option>
+                    <option value="Interactive">Interactive</option>
+                </select>
+                <button type="submit">Register</button>
+            </form>
+        </div>
+    );
+}
+
+export default Register;
+```
+
+### client/src/components/Dashboard.js:
+```javascript
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+
+function Dashboard() {
+    const [lessons, setLessons] = useState([]);
+    const user = {
+        level: 'Beginner', // This would normally come from the logged-in user's profile
+        preferredStyle: 'Reading' // This too would be user-specific
+    };
+
+    useEffect(() => {
+        const fetchLessons = async () => {
+            try {
+                const response = await axios.get(`http://localhost:5000/api/lessons/fetch-lessons`, {
+                    params: {
+                        level: user.level,
+                        preferredStyle: user.preferredStyle
+                    }
+                });
+                setLessons(response.data);
+            } catch (error) {
+                console.error('Error fetching lessons');
+            }
+        };
+
+        fetchLessons();
+    }, [user.level, user.preferredStyle]);
+
+    return (
+        <div>
+            <h1>Your Dynamic Lessons</h1>
+            <div>
+                {lessons.map((lesson) => (
+                    <div key={lesson._id}>
+                        <h2>{lesson.title}</h2>
+                        <p>{lesson.content}</p>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+export default Dashboard;
+```
+
+### client/src/App.js:
+```javascript
+import React from 'react';
+import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import Register from './components/Register';
+import Dashboard from './components/Dashboard';
+
+function App() {
+  return (
+    <Router>
+      <Routes>
+        <Route path="/" element={<Register />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+      </Routes>
+    </Router>
+  );
+}
+
+export default App;
+```
